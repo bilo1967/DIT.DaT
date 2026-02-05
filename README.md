@@ -164,6 +164,3 @@ This project is released under the **MIT License**.
 
 The tool is actively usable but not designed as a turnkey consumer application. It is intended for technically competent users in academic or research contexts.
 
-=======
-# DIT.DaT
-DIT - Diarization and Transcription Tool: a pipeline of scripts for diarizing and transcribing a long audio file, using Whisper and PyAnnote.
