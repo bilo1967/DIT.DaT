@@ -1,0 +1,212 @@
+=========
+0. FASE 0
+=========
+
+Esegue la diarizzazione dividendo l'input in più blocchi, per il problema di pyannote con gli audio lunghi.
+
+La sintassi completa è:
+
+python fase0.py \
+    --block-duration 30m \
+    --min-speakers 3 \
+    --max-speakers 4 \
+    --token=hf_wxxxxxxxxxxxxxxxxxxxxx \
+    --input tuofile.mp3 \
+    --project-dir tuacartella \
+    --block-duration 30m \
+    --sample-duration 30 \
+    --exclusive-mode
+
+Spiegazione:
+
+--block-duration   durata dei blocchi. Se la durata supera quello del file, ci sarà un solo blocco.
+--sample-duration  durata dei campioni di voce estratti per il riconoscimento manuale degli speaker, in secondi
+--project-dir      dove lo script genera i dati
+--input            la puntata da analizzare, in qualunque formato
+
+--min-speakers 3   Numero minimo speaker presunti
+--max-speakers 4   Numero massimo di speaker presunti
+
+Gli speaker riconosciuti indipendentemente per ciascun blocco.  Se c'è un blocco solo, nessun problema.
+Se ci sono più blocchi, andranno successivamente rimappati.
+
+--exclusive-mode
+
+Sempre a proposito del conteggio degli speaker, una delle novità del modello "community-1" che stiamo utilizzando è la modalità "exclusive mode", che evita di attribuire le sovrapposizioni a più speaker, assegnandole invece solo a quello prevalente (quello che parlava mentre gli altri gli si sono inseriti sopra).
+I segmenti totali sono quindi meno e si evita che a uno speaker venga assegnato solo un breve frammento di voci sovrapposte, creando meno problemi a Whisper e garantendo dei timing più accurati.
+Se l'opzione non viene specificata, le sovrapposizioni verranno assegnate anche agli altri speaker.
+
+Dopo l'esecuzione dello script, in tuacartella troverai delle subdirectory BLOCK_00, BLOCK_01, ... ciascuna delle quali conterrà i campioni audio degli speaker e i dati relativi a quel blocco e un report. Dovrai ascoltare i campioni per riconoscere gli speaker. I campioni sono prelevati dai segmenti più lunghi dello stesso speaker, presi 10 secondi alla volta, fino al raggiungimento dei 30 secondi, se possibile. Trenta secondi dovrebbero essere sufficienti per capire se si tratta di un vero speaker o di un fantasma, ma volendo puoi aumentare.
+I campioni sono ordinati per lunghezza decrescente dei segmenti. Negli eventuali sample di speaker "fantasma", all'inizio sentirai  persone che parlano insieme e, verso il finale, una serie di mugugnii sempre più corti che hanno un effetto vagamente comico. ;-)
+
+Lo scopo dei campioni, oltre che dare un nome agli speaker, è di compilare la mappa degli speaker che troverai sempre in tuacartella. La editerai con un editor di testo. Notepad++ è caldamente consigliato, ma il blocco note di windows va bene lo stesso. Evita Word, perché tende a inserire porcherie.
+
+Ecco un esempio:
+
+    ######################################################################
+    # MAPPA SPEAKER - ISTRUZIONI
+    ######################################################################
+    # Bla bla bla
+    ######################################################################
+
+    # BLOCCO 00 (0.0s - 1557.4s)
+    BLOCK_00.SPEAKER_00 => SCARTA
+    BLOCK_00.SPEAKER_01 => INTERVISTATORE_1
+    BLOCK_00.SPEAKER_02 => INTERVISTATORE_2
+    BLOCK_00.SPEAKER_03 => OSPITE
+
+    # BLOCCO 01 (1557.4s - 3102.5s)
+    BLOCK_01.SPEAKER_00 => INTERVISTATORE_1
+    BLOCK_01.SPEAKER_01 => SCARTA
+    BLOCK_01.SPEAKER_02 => OSPITE
+    BLOCK_01.SPEAKER_03 => INTERVISTATORE_2
+
+    # BLOCCO 02 (3102.5s - 4657.3s)
+    BLOCK_02.SPEAKER_00 => OSPITE
+    BLOCK_02.SPEAKER_01 => INTERVISTATORE_2
+    BLOCK_02.SPEAKER_02 => SCARTA
+    BLOCK_02.SPEAKER_03 => INTERVISTATORE_1
+
+    # BLOCCO 03 (4657.3s - 6215.7s)
+    BLOCK_03.SPEAKER_00 => INTERVISTATORE_2
+    BLOCK_03.SPEAKER_01 => OSPITE
+    BLOCK_03.SPEAKER_02 => INTERVISTATORE_1
+
+    [...]
+
+    # BLOCCO 07 (10883.4s - 12441.7s)
+    BLOCK_07.SPEAKER_00 => INTERVISTATORE_1
+    BLOCK_07.SPEAKER_01 => SCARTA
+    BLOCK_07.SPEAKER_02 => INTERVISTATORE_2
+    BLOCK_07.SPEAKER_03 => OSPITE
+
+    # DOPO AVER COMPILATO, SALVA IL FILE E PROSEGUI CON FASE 1
+
+Ciò che segue il simbolo "#" è un commento. Puoi eventualmente mettere i tuoi.
+Il numero di speaker riconosciuti può variare dal minimo al massimo fissati.
+
+Dopo che avrai scaricato e modificato la mappa, fai l'upload e copiala su quella vuota.
+
+==================
+1. FASE 1
+==================
+E' brevissima e si limita a fondere i dati dei blocchi usando la tua mappa.
+La sintassi è:
+
+python fase1.py --project-dir tuacartella
+
+Non c'è niente di particolare da configurare e va semplicemente eseguita così.
+Potrebbe segnalarti degli errori, se la mappa è compilata male
+
+=========
+2. FASE 2
+=========
+
+Filtraggio:
+
+python fase2.py \
+                --project-dir tuacartella \
+                --min-duration 0.5 \
+                --min-pause 2 \
+                --drop-speakers TIZIO,CAIO \
+                --verbose
+
+Aggrega i segmenti consecutivi dello stesso speaker che sono separati da meno di 2 secondi e scarta i segmenti isolati più corti di 0.5 secondi.
+
+E' possibile scartare degli speaker con l'opzione --drop-speakers. I nomi degli speaker da scartare sono quelli definiti nella mappa.
+
+
+=========
+3. FASE 3 
+=========
+
+Opzionale.
+
+Crea dei file audio separati per ciascuno speaker.
+
+python fase3.py \
+                --fill-mode none \
+                --project-dir tuacartella \
+
+Ogni file audio è lungo quanto il podcast ma contiene solo i turni di parola di ciascuno speaker.
+Il fill mode può essere none, pink o white.
+
+
+=========
+4. FASE 4
+=========
+
+Trascrizioni con Whisper
+
+python fase4.py \
+                --model large-v3 \
+                --language German \
+                --project-dir tuacartella \
+
+E' anche possibile indicare un file specifico da trascrivere o uno speaker specifico:
+
+                --input-wav INPUT_WAV \
+                --speaker SPEAKER \
+
+Parametri specifici per il fine tuning di whisper:
+                --temperature 0 \
+                --beam_size 5 \
+                --best_of 5 \
+                --no_speech_threshold 0.6 \
+                --compression_ratio_threshold 2.4
+
+--temperature VALORE (default 0)
+    Percentuale normalizzata (valori da 0 a 1)
+    Indica il "livello di creatività" da usare nella trascrizione.
+    Valore basso (0.0-0.3): Trascrizione più conservativa e prevedibile
+    Valore alto (0.7-1.0): Trascrizione più creativa ma potenzialmente meno accurata
+
+--beam_size VALORE (default 5)
+    Numero intero
+    Numero di "ipotesi" parallele considerate Whisper per un termine.
+    Valore basso (1-3): Più veloce, meno accuratezza
+    Valore alto (5-10): Più lento, migliore qualità
+
+--best_of VALORE (default 5)
+    Numero intero
+    Quante trascrizioni alternative genera, per poi scegliere la migliore.
+    Valore alto: Migliore qualità ma (potenzialmente molto) più lento.
+    Valore basso: Più veloce ma qualità inferiore
+
+--no_speech_threshold VALORE (default 0.6 = 60%)
+    Percentuale normalizzata (valori da 0 a 1)
+    Soglia del volume per decidere se c'è voce o solo silenzio/rumore.
+    Valore basso (0.2-0.4): Più sensibile, trascrive anche audio debole
+    Valore alto (0.6-0.8): Più selettivo, salta parti con poca voce
+
+--compression_ratio_threshold (default 2.4)
+    Numero decimale
+    Rileva possibili "allucinazioni" (testo inventato)
+    Valore basso (1.5-2.0): Più permissivo, accetta più testo
+    Valore alto (2.3-2.8): Più conservativo, scarta testo sospetto
+
+
+=========
+5. FASE 5
+=========
+
+Crea sottotitoli per speaker e file unificati pronti per l'editing.
+I file SRT sono compatibili con SubtitleEdit (o altri programmi di sottotitolaggio) per la revisione.
+
+python fase5.py \
+                --project-dir tuacartella \
+
+Di default utilizza i segmenti "lunghi" dove i turni di parola sono accorpati.
+
+Opzionalmente è possibile usare i segmenti più brevi prodotti da whisper.
+
+                --use-whisper-segments
+
+=========
+6. FASE 6
+=========
+
+I sottititoli corretti sono ri-trasformati nei formati testuali desiderati.
+
+python fase6.py --project-dir  BOC1002
+
