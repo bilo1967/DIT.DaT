@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # DIT.DaT tool
 
 **DIT Diarization and Transcription tool**
@@ -168,4 +167,3 @@ The tool is actively usable but not designed as a turnkey consumer application. 
 =======
 # DIT.DaT
 DIT - Diarization and Transcription Tool: a pipeline of scripts for diarizing and transcribing a long audio file, using Whisper and PyAnnote.
->>>>>>> e7429cbc39d1a6cf3a91bf779ec63f87fd7ca594
