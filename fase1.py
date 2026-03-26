@@ -16,7 +16,7 @@ from collections import defaultdict
 from pathlib import Path
 
 # Funzioni comuni
-import common_utils
+import utils as common_utils
 
 
 def get_speaker_map_path(project_dir, args):

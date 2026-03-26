@@ -14,7 +14,7 @@ from collections import defaultdict
 from pathlib import Path
 
 # Funzioni comuni
-import common_utils
+import utils as common_utils
 
 def parse_srt_file(srt_path):
     """

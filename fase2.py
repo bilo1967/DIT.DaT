@@ -13,7 +13,7 @@ import yaml
 from collections import defaultdict
 
 # Funzioni comuni
-import common_utils
+import utils as common_utils
 
 
 def validate_input_data(data):

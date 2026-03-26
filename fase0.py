@@ -36,7 +36,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.cluster import DBSCAN
 
 # Funzioni comuni
-import common_utils
+import utils as common_utils
 
 def load_or_create_config(project_dir, args):
     """Carica config esistente o crea nuovo con parametri da CLI"""

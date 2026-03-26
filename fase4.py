@@ -22,7 +22,7 @@ import torch
 import whisper
 
 # Funzioni comuni
-import common_utils
+import utils as common_utils
 
 # Costante per la durata del padding (in millisecondi)
 PADDING_DURATION_MS = 500  # 0.5 secondi

@@ -19,7 +19,7 @@ from collections import defaultdict
 from pathlib import Path
 
 # Funzioni comuni
-import common_utils
+import utils as common_utils
 
 def get_input_dir(project_dir, args):
     """Ottiene la directory di input (trascrizioni Whisper)"""

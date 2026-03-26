@@ -13,7 +13,7 @@ from pathlib import Path
 import yaml
 
 # Funzioni comuni
-import common_utils
+import utils as common_utils
 
 def get_wav_file_path(project_dir):
     """Ottiene il percorso del file WAV dal config"""

@@ -24,7 +24,7 @@ from pydub import AudioSegment, silence
 from pydub.generators import WhiteNoise
 
 # Funzioni comuni
-import common_utils
+import utils as common_utils
 
 def validate_input_json(data):
     """Valida la struttura del JSON di input per Fase 3"""
