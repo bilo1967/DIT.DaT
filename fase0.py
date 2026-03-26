@@ -141,23 +141,28 @@ def extract_audio_segment(input_path, output_path, start_time, end_time):
     return output_path
 
 
+
+
+
+
 def process_audio_block(audio_path, start_time, max_duration, total_duration, pipeline, device, pipeline_params, id_offset=0, exclusive_mode=False):
     """
-    Processa un blocco di audio di massimo max_duration secondi
-    Versione semplificata - estrae segmenti e embeddings in modo più efficiente
+    Processa un blocco di audio di durata max_duration secondi.
+    Se l'ultimo segmento finisce esattamente alla fine del blocco,
+    lo esclude dal blocco corrente e inizia il prossimo blocco dall'inizio di quel segmento.
     """
     temp_audio_path = f"temp_block_{int(time.time())}_{os.getpid()}.wav"
-    end_time_target = start_time + max_duration
+    block_end = start_time + max_duration
 
     try:
         # Estrai il blocco audio
-        extract_audio_segment(audio_path, temp_audio_path, start_time, end_time_target)
+        extract_audio_segment(audio_path, temp_audio_path, start_time, block_end)
 
-        # Diarizzazione con progress bar
+        # Diarizzazione
         with ProgressHook() as hook:
             diarization = pipeline(temp_audio_path, hook=hook, **pipeline_params)
 
-        # Seleziona il tipo di diarizzazione in base alla modalità
+        # Sorgente diarizzazione
         if exclusive_mode and hasattr(diarization, 'exclusive_speaker_diarization'):
             diarization_source = diarization.exclusive_speaker_diarization
         elif hasattr(diarization, 'speaker_diarization'):
@@ -165,7 +170,7 @@ def process_audio_block(audio_path, start_time, max_duration, total_duration, pi
         else:
             diarization_source = diarization
 
-        # UNICO LOOP: estrai segmenti e raccogli speaker
+        # Raccogli tutti i segmenti nel blocco
         segments_data = []
         speakers_in_segments = set()
 
@@ -187,54 +192,76 @@ def process_audio_block(audio_path, start_time, max_duration, total_duration, pi
             })
             speakers_in_segments.add(speaker)
 
-        # Estrazione embeddings - SOLO SE ABBIAMO SEGMENTI
-        speaker_embeddings_dict = {}
+        # distanza temporale minima
+        epsilon = 1e-6
 
+        # Caso patologico: c'è un solo segmento lungo quanto il blocco
+        if len(segments_data) == 1:
+            single = segments_data[0]
+            # Se il segmento copre l'intero blocco (con tolleranza)
+            if abs(single['start'] - start_time) < epsilon and abs(single['end'] - block_end) < epsilon:
+                raise RuntimeError(
+                    f"Segmento singolo copre l'intero blocco [{start_time:.2f}-{block_end:.2f}]. "
+                    f"Impossibile gestire il taglio. Aumentare la durata del blocco o verificare l'audio."
+                )
+
+
+        # Verifica se l'ultimo segmento termina esattamente alla fine del blocco
+        exclude_last = False
+        last_segment = None
+        if segments_data:
+            last_segment = segments_data[-1]
+            # Se l'end è molto vicino al block_end, consideralo tagliato
+            if abs(last_segment['end'] - block_end) < epsilon:
+                exclude_last = True
+                # Rimuovi l'ultimo segmento dalla lista
+                segments_data.pop()
+                # Rimuovi lo speaker dall'insieme se era l'unico segmento per quello speaker
+                if last_segment['speaker'] in speakers_in_segments:
+                    # Controlla se lo speaker è ancora presente in altri segmenti
+                    if not any(seg['speaker'] == last_segment['speaker'] for seg in segments_data):
+                        speakers_in_segments.remove(last_segment['speaker'])
+
+        # Estrai embeddings (solo per gli speaker rimasti nel blocco)
+        speaker_embeddings_dict = {}
         if segments_data and hasattr(diarization, 'speaker_embeddings') and diarization.speaker_embeddings is not None:
             try:
                 sorted_speakers = sorted(list(speakers_in_segments))
+                embeddings_list = list(diarization.speaker_embeddings)
 
-                if hasattr(diarization.speaker_embeddings, '__iter__'):
-                    embeddings_list = list(diarization.speaker_embeddings)
-
-                    if len(embeddings_list) >= len(sorted_speakers):
-                        for i, speaker in enumerate(sorted_speakers):
-                            if i < len(embeddings_list):
-                                speaker_embeddings_dict[speaker] = embeddings_list[i].tolist() if hasattr(embeddings_list[i], 'tolist') else embeddings_list[i]
-                    else:
-                        print(f"Warning: Meno embeddings ({len(embeddings_list)}) che speaker ({len(sorted_speakers)}) nel blocco")
-
+                for i, speaker in enumerate(sorted_speakers):
+                    if i < len(embeddings_list):
+                        emb = embeddings_list[i]
+                        speaker_embeddings_dict[speaker] = emb.tolist() if hasattr(emb, 'tolist') else emb
             except Exception as e:
                 print(f"Errore nell'estrazione embeddings: {e}")
 
-        # [MANTIENI IL RESTO DEL CODICE PER RELAZIONI TRA SEGMENTI E GESTIONE BLOCCHI...]
-        # Rileva relazioni tra segmenti (sovrapposizioni e inclusioni)
-        segments_data.sort(key=lambda x: x["start"])
-
-        for i in range(len(segments_data)):
-            seg1 = segments_data[i]
-            # ... codice per relazioni tra segmenti ...
-
-        # Check ultimo blocco e calcolo next_start
-        remaining_time = total_duration - start_time
-        is_final_block = remaining_time < (max_duration / 3)
-
-        if is_final_block or len(segments_data) <= 1:
-            segments_to_keep = segments_data
-            next_start = segments_data[-1]["end"] if segments_data else start_time + 30.0
+        # Determina dove inizia il prossimo blocco
+        if exclude_last:
+            # Il prossimo blocco parte dall'inizio del segmento escluso
+            next_start = last_segment['start']
+            next_id_offset = last_segment['id']   # stesso ID per il segmento nel prossimo blocco
         else:
-            segments_to_keep = segments_data[:-1]
-            next_start = segments_data[-1]["start"]
+            # Nessun segmento escluso: prossimo blocco parte dalla fine del blocco corrente
+            if segments_data:
+                # Se l'ultimo segmento non è stato escluso, partiamo dalla fine del blocco
+                next_start = block_end
+            else:
+                # Blocco vuoto (nessun segmento) → avanza alla fine del blocco
+                next_start = block_end
+            next_id_offset = id_offset + len(segments_data) if segments_data else id_offset
 
-        # Calcola il prossimo offset ID
-        max_id = max(seg["id"] for seg in segments_to_keep) if segments_to_keep else id_offset
-        next_id_offset = max_id + 1
+        # Assicuriamoci di non andare oltre la durata totale
+        if next_start > total_duration:
+            next_start = total_duration
 
-        return segments_to_keep, next_start, next_id_offset, speaker_embeddings_dict
+        return segments_data, next_start, next_id_offset, speaker_embeddings_dict
 
     finally:
         if os.path.exists(temp_audio_path):
             os.remove(temp_audio_path)
+
+
 
 
 def extract_speaker_samples(audio_path, segments, block_dir, sample_duration=60):
@@ -411,6 +438,11 @@ def generate_speaker_map(blocks_data, output_dir):
             f.write(f"# BLOCCO {block_id:02d} ({block_start:.1f}s - {block_end:.1f}s)\n")
             
             speakers = sorted(list(set(seg['speaker'] for seg in block_data['segments'])))
+
+            if not speakers:
+                # Blocco senza speaker (audio muto)
+                f.write("# Nessuno speaker (audio muto?)\n\n")
+                continue
             
             for speaker in speakers:
                 block_speaker_id = f"BLOCK_{block_id:02d}.{speaker}"
