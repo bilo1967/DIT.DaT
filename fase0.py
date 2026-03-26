@@ -38,6 +38,7 @@ from sklearn.cluster import DBSCAN
 # Funzioni comuni
 import utils as common_utils
 
+
 def load_or_create_config(project_dir, args):
     """Carica config esistente o crea nuovo con parametri da CLI"""
     config_path = os.path.join(project_dir, "config.yaml")
@@ -66,7 +67,7 @@ def load_or_create_config(project_dir, args):
     if args.num_blocks is not None:
         if 'block_duration' in config['phase0']:
             del config['phase0']['block_duration']
-    elif args.block_duration: 
+    elif args.block_duration:
         if 'num_blocks' in config['phase0']:
             del config['phase0']['num_blocks']
 
@@ -96,23 +97,24 @@ def load_or_create_config(project_dir, args):
 
     return config
 
+
 def check_required_params(config, args):
     """Verifica parametri obbligatori per fase0"""
     phase0_config = config.get('phase0', {})
-    
-    # Ottiene hoken HF da var. di environment, file di configurazione o parametro
+
+    # Ottiene token HF da var. di environment, file di configurazione o parametro
     mytoken = get_hf_token(args, config)
     if not mytoken:
         print("ERRORE: Token Hugging Face obbligatorio")
         print("Specifica --token o aggiungilo al config.yaml nella directory di progetto")
         print("oppure imposta la variabile d'ambiente HUGGINGFACE_HUB_TOKEN o HF_TOKEN")
         return False
-    
+
     # Input è obbligatorio
     if not args.input:
         print("ERRORE: --input obbligatorio")
         return False
-    
+
     return True
 
 
@@ -134,15 +136,12 @@ def get_hf_token(args, config):
 
     return None
 
+
 def extract_audio_segment(input_path, output_path, start_time, end_time):
     """Estrai segmento audio con ffmpeg"""
     cmd = f"ffmpeg -i '{input_path}' -ss {start_time} -to {end_time} -acodec pcm_s16le -ar 16000 -ac 1 -y '{output_path}' 2>/dev/null"
     subprocess.run(cmd, shell=True, check=True)
     return output_path
-
-
-
-
 
 
 def process_audio_block(audio_path, start_time, max_duration, total_duration, pipeline, device, pipeline_params, id_offset=0, exclusive_mode=False):
@@ -205,7 +204,6 @@ def process_audio_block(audio_path, start_time, max_duration, total_duration, pi
                     f"Impossibile gestire il taglio. Aumentare la durata del blocco o verificare l'audio."
                 )
 
-
         # Verifica se l'ultimo segmento termina esattamente alla fine del blocco
         exclude_last = False
         last_segment = None
@@ -262,44 +260,42 @@ def process_audio_block(audio_path, start_time, max_duration, total_duration, pi
             os.remove(temp_audio_path)
 
 
-
-
 def extract_speaker_samples(audio_path, segments, block_dir, sample_duration=60):
     """Estrai campioni audio per ogni speaker - versione semplificata e robusta"""
     speaker_samples = {}
-    
+
     for speaker in set(seg['speaker'] for seg in segments):
         speaker_segments = [s for s in segments if s['speaker'] == speaker]
-        
+
         if not speaker_segments:
             continue
-            
+
         # Ordina i segmenti per durata (dal più lungo al più corto)
         speaker_segments.sort(key=lambda x: (-x['duration'], x['start']))
-        
+
         selected_segments = []
         current_duration = 0
         gap_duration = 0.2  # Secondi di pausa tra segmenti
-        
+
         # Seleziona segmenti fino a raggiungere la durata target
         for seg in speaker_segments:
             if current_duration >= sample_duration:
                 break
-                
+
             # Calcola quanto possiamo prendere da questo segmento
             max_segment_duration = 10.0  # Massimo 10 secondi per segmento
             segment_available = min(seg['duration'], max_segment_duration)
             needed_duration = sample_duration - current_duration
-            
+
             # Quanto prendere da questo segmento
             take_duration = min(segment_available, needed_duration)
-            
+
             if take_duration > 1.0:  # Solo se il segmento è abbastanza lungo
                 # Prendi la parte centrale del segmento
                 segment_mid = seg['start'] + (seg['duration'] / 2)
                 segment_start = segment_mid - (take_duration / 2)
                 segment_end = segment_start + take_duration
-                
+
                 # Aggiusta se fuori dai limiti del segmento originale
                 if segment_start < seg['start']:
                     segment_start = seg['start']
@@ -307,31 +303,31 @@ def extract_speaker_samples(audio_path, segments, block_dir, sample_duration=60)
                 elif segment_end > seg['end']:
                     segment_end = seg['end']
                     segment_start = segment_end - take_duration
-                
+
                 selected_segments.append({
                     'start': segment_start,
                     'end': segment_end,
                     'duration': take_duration
                 })
                 current_duration += take_duration
-        
+
         # Se non abbiamo abbastanza materiale, usa l'approccio originale come fallback
         if not selected_segments:
             # Fallback: prendi il segmento più lungo (max 60s)
             longest_segment = speaker_segments[0]
             sample_start = longest_segment['start']
             sample_end = min(longest_segment['end'], sample_start + sample_duration)
-            
+
             selected_segments.append({
                 'start': sample_start,
                 'end': sample_end,
                 'duration': sample_end - sample_start
             })
-        
+
         # APPROCCIO SEMPLIFICATO: estrai direttamente il sample finale
         sample_filename = f"{speaker}_sample.wav"
         sample_path = os.path.join(block_dir, sample_filename)
-        
+
         if len(selected_segments) == 1:
             # Caso semplice: un solo segmento
             seg_info = selected_segments[0]
@@ -344,27 +340,27 @@ def extract_speaker_samples(audio_path, segments, block_dir, sample_duration=60)
             filter_complex = ""
             inputs = ""
             concat_inputs = ""
-            
+
             for i, seg_info in enumerate(selected_segments):
                 # Aggiungi input per ogni segmento
                 filter_complex += f"[{i}:a]"
                 inputs += f" -ss {seg_info['start']} -to {seg_info['end']} -i '{audio_path}'"
                 concat_inputs += f"[{i}:a]"
-            
+
             # Aggiungi pause di 0.2s tra i segmenti
             gap_filter = ""
             for i in range(len(selected_segments) - 1):
                 gap_filter += f"anullsrc=channel_layout=mono:sample_rate=16000:duration=0.2[gap{i}];"
                 concat_inputs += f"[gap{i}]"
-            
+
             concat_inputs += f"concat=n={len(selected_segments) * 2 - 1}:v=0:a=1[outa]"
-            
+
             cmd = (
                 f"ffmpeg -y{inputs} -f lavfi -i anullsrc=channel_layout=mono:sample_rate=16000 "
                 f"-filter_complex \"{gap_filter}{concat_inputs}\" "
                 f"-map '[outa]' -acodec pcm_s16le -ar 16000 -ac 1 -t {current_duration} '{sample_path}' 2>/dev/null"
             )
-        
+
         try:
             # Esegui il comando ffmpeg
             result = subprocess.run(cmd, shell=True, check=True, capture_output=True)
@@ -372,7 +368,7 @@ def extract_speaker_samples(audio_path, segments, block_dir, sample_duration=60)
                 speaker_samples[speaker] = sample_path
             else:
                 print(f"Warning: Sample non creato per {speaker}")
-                
+
         except subprocess.CalledProcessError as e:
             print(f"Errore ffmpeg per {speaker}: {e}")
             # Fallback ultra-semplice: primo segmento
@@ -387,14 +383,14 @@ def extract_speaker_samples(audio_path, segments, block_dir, sample_duration=60)
                     speaker_samples[speaker] = sample_path
             except:
                 print(f"Fallback fallito per {speaker}")
-    
+
     return speaker_samples
 
 
 def generate_speaker_map(blocks_data, output_dir):
     """Genera file di mappatura speaker con istruzioni migliorate"""
     map_path = os.path.join(output_dir, "speakers_map.txt")
-    
+
     with open(map_path, 'w', encoding='utf-8') as f:
         f.write("######################################################################\n")
         f.write("# MAPPA SPEAKER - ISTRUZIONI\n")
@@ -419,34 +415,29 @@ def generate_speaker_map(blocks_data, output_dir):
         f.write("# \n")
         f.write("# NOTA: I campioni audio sono disponibili nelle cartelle BLOCK_XX/\n")
         f.write("######################################################################\n\n")
-        
+
         # Per il primo blocco, suggerisci nomi automatici
         first_block_speakers = []
         if blocks_data:
             first_block_speakers = sorted(list(set(
                 seg['speaker'] for seg in blocks_data[0]['segments']
             )))
-        
+
         global_speaker_map = {}
         for i, speaker in enumerate(first_block_speakers):
             global_speaker_map[speaker] = f"SPEAKER_{chr(65 + i)}"  # A, B, C, ...
-        
+
         for block_id, block_data in enumerate(blocks_data):
             block_start = block_data['metadata']['start_time']
             block_end = block_data['metadata']['end_time']
-            
+
             f.write(f"# BLOCCO {block_id:02d} ({block_start:.1f}s - {block_end:.1f}s)\n")
-            
+
             speakers = sorted(list(set(seg['speaker'] for seg in block_data['segments'])))
 
-            if not speakers:
-                # Blocco senza speaker (audio muto)
-                f.write("# Nessuno speaker (audio muto?)\n\n")
-                continue
-            
             for speaker in speakers:
                 block_speaker_id = f"BLOCK_{block_id:02d}.{speaker}"
-                
+
                 if block_id == 0:
                     # Primo blocco: suggerisci nomi automatici
                     if speaker in global_speaker_map:
@@ -456,11 +447,11 @@ def generate_speaker_map(blocks_data, output_dir):
                 else:
                     # Blocchi successivi: lascia vuoto per scelta manuale
                     f.write(f"{block_speaker_id} => \n")
-            
+
             f.write("\n")
-        
+
         f.write("# DOPO AVER COMPILATO, SALVA IL FILE E PROSEGUI CON FASE 1\n")
-    
+
     return map_path
 
 
@@ -574,15 +565,15 @@ def extract_embeddings_from_diarization(blocks_data):
     invece di ricalcolarli con un modello separato
     """
     embeddings_dict = {}
-    
+
     for block_data in blocks_data:
         block_id = block_data['metadata']['block_id']
-        
+
         # Gli embeddings sono già nel block_data se li abbiamo salvati durante la diarizzazione
         if 'speaker_embeddings' in block_data:
             for speaker, embedding in block_data['speaker_embeddings'].items():
                 embeddings_dict[(str(block_id), speaker)] = embedding
-    
+
     return embeddings_dict
 
 
@@ -711,10 +702,10 @@ def calculate_block_distribution(total_duration, block_duration, residual_thresh
     """
     if total_duration <= block_duration:
         return [total_duration]
-    
+
     num_full_blocks = int(total_duration // block_duration)
     residual = total_duration % block_duration
-    
+
     # Se il residuo è significativo (> 1/residual_threshold del blocco), crea blocco aggiuntivo
     if residual > (block_duration / residual_threshold):
         return [block_duration] * num_full_blocks + [residual]
@@ -727,52 +718,17 @@ def calculate_block_distribution(total_duration, block_duration, residual_thresh
         return blocks
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="FASE 0 - Diarizzazione a blocchi fissi",
-        formatter_class=argparse.RawTextHelpFormatter
-    )
-    
-    parser.add_argument("--input", type=str, required=True, help="Percorso del file audio")
-    parser.add_argument("--project-dir", "--output-dir", type=str, required=True, help="Directory di progetto")
-    
-    # Modifica: un solo parametro tra --block-duration e --num-blocks
-    block_group = parser.add_mutually_exclusive_group(required=True)
-    block_group.add_argument("--block-duration", type=str, 
-                           help="Durata target blocchi (es: 1800, 1800s, 30m)")
-    block_group.add_argument("--num-blocks", type=int,
-                           help="Numero di blocchi in cui dividere l'audio")
-    
-    parser.add_argument("--sample-duration", type=float, default=60.0,
-                       help="Durata campioni audio speaker (secondi) [default: 60]")
-    parser.add_argument("--min-speakers", type=int, help="Numero minimo di speaker")
-    parser.add_argument("--max-speakers", type=int, help="Numero massimo di speaker")
-    parser.add_argument("--num-speakers", type=int, help="Numero esatto di speaker")
-    parser.add_argument("--exclusive-mode", action="store_true",
-                       help="Usa la diarizzazione exclusive di community-1 per migliore compatibilità Whisper\n"
-                            "Unisce il parlato sovrapposto in turni sequenziali")
-    parser.add_argument("--quiet", action="store_true", help="Disabilita output dettagliato")
-    parser.add_argument("--cpu", action="store_true", help="Forza l'uso della CPU")
-    parser.add_argument("--token", type=str, help="Token per Hugging Face Hub")
-    parser.add_argument("--force", action="store_true", help="Sovrascrive file esistenti senza chiedere conferma")
-    parser.add_argument("--residual-threshold", type=int, default=5,
-                       help="Soglia per gestione residuo (default: 5 = 1/5 della durata blocco)")
-    parser.add_argument("--auto-map", action="store_true",
-                       help="Genera automaticamente la mappatura speaker usando embedding e clustering")
-    
-    args = parser.parse_args()
-
-    
+def main(args):
     # Crea directory progetto
     os.makedirs(args.project_dir, exist_ok=True)
-    
+
     # Gestione configurazione
     config = load_or_create_config(args.project_dir, args)
-    
+
     # Verifica parametri obbligatori
     if not check_required_params(config, args):
         sys.exit(1)
-   
+
     # Directory dei blocchi
     blocks_dir = os.path.join(args.project_dir, "blocks")
 
@@ -783,9 +739,8 @@ def main():
     # Considera che l'esecuzione parta qui, dopo la richiesta di conferma
     start_time = time.time()
 
-    # Crea directory blocks e verifica sovrascrittura
+    # Crea directory blocks
     os.makedirs(blocks_dir, exist_ok=True)
-
 
     # Ottieni parametri (CLI override config)
     phase0_config = config.get('phase0', {})
@@ -794,26 +749,26 @@ def main():
     num_blocks = args.num_blocks or phase0_config.get('num_blocks')
     sample_duration = args.sample_duration or phase0_config.get('sample_duration', 60.0)
     residual_threshold = args.residual_threshold or phase0_config.get('residual_threshold', 5)
-    
+
     # Converti input a WAV
     input_basename = os.path.basename(args.input)
     converted_audio_path = os.path.join(args.project_dir, "audio_converted.wav")
-    
+
     if not args.quiet:
         print(f"Conversione a WAV: {converted_audio_path}")
-    
+
     cmd = f"ffmpeg -i '{args.input}' -acodec pcm_s16le -ar 16000 -ac 1 -y '{converted_audio_path}' 2>/dev/null"
     subprocess.run(cmd, shell=True, check=True)
-    
+
     # Aggiorna percorso audio convertito nel config
     config['paths']['converted_audio'] = "audio_converted.wav"
     with open(os.path.join(args.project_dir, "config.yaml"), 'w', encoding='utf-8') as f:
         yaml.dump(config, f, default_flow_style=False, indent=2)
-    
+
     # Ottieni durata totale audio
     audio = AudioSegment.from_wav(converted_audio_path)
     total_duration_sec = len(audio) / 1000.0
-    
+
     # Calcola durata blocco e distribuzione
     if block_duration_str:
         block_duration_sec = common_utils.parse_duration(block_duration_str)
@@ -827,20 +782,19 @@ def main():
         total_calculated = sum(block_durations)
         if total_calculated < total_duration_sec:
             block_durations[-1] += total_duration_sec - total_calculated
-    
+
     if not args.quiet:
         print(f"Durata audio totale: {total_duration_sec:.1f}s")
         print(f"Numero blocchi: {num_blocks}")
         print(f"Distribuzione blocchi: {[f'{d:.1f}s' for d in block_durations]}")
         print(f"Modalità diarizzazione: {'EXCLUSIVE' if args.exclusive_mode else 'REGULAR'}")
-    
+
     use_gpu = torch.cuda.is_available() and not args.cpu
     device = torch.device("cuda" if use_gpu else "cpu")
-    
+
     if not args.quiet:
         print(f"Dispositivo: {device}")
-    
-    
+
     # Prepara pipeline PyAnnote 4.0 con il nuovo modello community
     print(f"Caricamento modello PyAnnote: pyannote/speaker-diarization-community-1")
     try:
@@ -851,7 +805,7 @@ def main():
     except Exception as e:
         print(f"ERRORE: Impossibile caricare modello PyAnnote: {e}")
         return 1
-    
+
     pipeline_params = {}
     if args.num_speakers:
         pipeline_params["num_speakers"] = args.num_speakers
@@ -860,21 +814,21 @@ def main():
             pipeline_params["min_speakers"] = args.min_speakers
         if args.max_speakers:
             pipeline_params["max_speakers"] = args.max_speakers
-    
+
     # Processa audio a blocchi
     blocks_data = []
     current_time = 0.0
     current_id_offset = 0
-    
+
     if not args.quiet:
         print("Elaborazione blocchi...\n")
-    
+
     for block_id, actual_duration in enumerate(block_durations):
         if not args.quiet:
             print(f"Blocco {block_id:02d}: da {current_time:.1f}s a circa {current_time+actual_duration:.1f}s (durata: {actual_duration:.1f}s)")
 
         now = time.time()
-        
+
         # Processa il blocco corrente
         segments, next_start, last_id, speaker_embeddings = process_audio_block(
             converted_audio_path, current_time, actual_duration, total_duration_sec,
@@ -884,17 +838,17 @@ def main():
         gpu_time = time.time() - now
 
         # Aggiorna offset per il prossimo blocco
-        current_id_offset = last_id if last_id > current_id_offset else current_id_offset        
-        
+        current_id_offset = last_id if last_id > current_id_offset else current_id_offset
+
         # Crea directory per il blocco
         block_dir = os.path.join(blocks_dir, f"BLOCK_{block_id:02d}")
         os.makedirs(block_dir, exist_ok=True)
-        
+
         # Estrai campioni audio per speaker
         speaker_samples = extract_speaker_samples(
             converted_audio_path, segments, block_dir, sample_duration
         )
-        
+
         # Salva dati del blocco
         block_data = {
             "metadata": {
@@ -907,20 +861,20 @@ def main():
             },
             "segments": segments,
             "speaker_samples": speaker_samples,
-            "speaker_embeddings": speaker_embeddings  # <-- AGGIUNTO
+            "speaker_embeddings": speaker_embeddings
         }
-        
+
         json_path = os.path.join(block_dir, f"block_{block_id:02d}.json")
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(block_data, f, indent=2, ensure_ascii=False)
-        
+
         blocks_data.append(block_data)
 
         # Genera report statistiche
         report_path = generate_block_report(block_data, block_dir)
         if not args.quiet:
             print(f"  Report: {os.path.basename(report_path)}")
-   
+
         total_time = time.time() - now
         if not args.quiet:
             print(f"  Speaker individuati: {block_data['metadata']['num_speakers']}")
@@ -931,11 +885,10 @@ def main():
                 print(f"  Il prossimo blocco parte da: {next_start:.1f}s\n")
             else:
                 print(f"  Questo è l'ultimo blocco (fine blocco a {next_start:.1f}s)\n")
-        
+
         # Prepara per il prossimo blocco
         current_time = next_start
 
-    
     # Genera mappa speaker: automatica o manuale?
     if args.auto_map:
         # Controlla se c'è più di un blocco
@@ -944,10 +897,6 @@ def main():
             map_path = generate_speaker_map(blocks_data, args.project_dir)
         else:
             print("Generazione mappatura automatica speaker...")
-            # Estrai embedding e genera mappatura automatica
-            #embeddings_dict, sample_paths = extract_embeddings_from_samples(
-            #    args.project_dir, mytoken, blocks_data
-            #)            
             embeddings_dict = extract_embeddings_from_diarization(blocks_data)
             if embeddings_dict:
                 suggested_mapping, cluster_groups = generate_auto_mapping(embeddings_dict)
@@ -960,7 +909,6 @@ def main():
         map_path = generate_speaker_map(blocks_data, args.project_dir)
 
     # Salva metadata complessivo
-
     actual_block_durations = []
     for block_data in blocks_data:
         start = block_data['metadata']['start_time']
@@ -980,14 +928,14 @@ def main():
         "residual_threshold": residual_threshold,
         "actual_block_durations": actual_block_durations
     }
-    
+
     metadata_path = os.path.join(args.project_dir, "metadata.json")
     with open(metadata_path, 'w', encoding='utf-8') as f:
         json.dump(metadata, f, indent=2, ensure_ascii=False)
 
     # Tempo totale
     elapsed_time = common_utils.save_execution_stats(args.project_dir, os.path.basename(sys.argv[0]), start_time, args)
-    
+
     if not args.quiet:
         print(f"\n=== FASE 0 COMPLETATA ===")
         print(f"Blocchi processati: {len(blocks_data)}")
@@ -995,9 +943,42 @@ def main():
         print(f"Modalità: {'EXCLUSIVE' if args.exclusive_mode else 'REGULAR'}")
         print(f"Mappa speaker: {map_path}")
         print(f"Tempo totale: {elapsed_time:.2f}s")
-    
+
     return 0
 
 
+def add_arguments(parser):
+    """Aggiunge gli argomenti al parser"""
+    parser.add_argument("--input", type=str, required=True, help="Percorso del file audio")
+    parser.add_argument("--project-dir", "--output-dir", type=str, required=True, help="Directory di progetto")
+    block_group = parser.add_mutually_exclusive_group(required=True)
+    block_group.add_argument("--block-duration", type=str,
+                           help="Durata target blocchi (es: 1800, 1800s, 30m)")
+    block_group.add_argument("--num-blocks", type=int,
+                           help="Numero di blocchi in cui dividere l'audio")
+    parser.add_argument("--sample-duration", type=float, default=60.0,
+                       help="Durata campioni audio speaker (secondi) [default: 60]")
+    parser.add_argument("--min-speakers", type=int, help="Numero minimo di speaker")
+    parser.add_argument("--max-speakers", type=int, help="Numero massimo di speaker")
+    parser.add_argument("--num-speakers", type=int, help="Numero esatto di speaker")
+    parser.add_argument("--exclusive-mode", action="store_true",
+                       help="Usa la diarizzazione exclusive di community-1 per migliore compatibilità Whisper\n"
+                            "Unisce il parlato sovrapposto in turni sequenziali")
+    parser.add_argument("--quiet", action="store_true", help="Disabilita output dettagliato")
+    parser.add_argument("--cpu", action="store_true", help="Forza l'uso della CPU")
+    parser.add_argument("--token", type=str, help="Token per Hugging Face Hub")
+    parser.add_argument("--force", action="store_true", help="Sovrascrive file esistenti senza chiedere conferma")
+    parser.add_argument("--residual-threshold", type=int, default=5,
+                       help="Soglia per gestione residuo (default: 5 = 1/5 della durata blocco)")
+    parser.add_argument("--auto-map", action="store_true",
+                       help="Genera automaticamente la mappatura speaker usando embedding e clustering")
+
+
 if __name__ == "__main__":
-    main()
+    _parser = argparse.ArgumentParser(
+        description="FASE 0 - Diarizzazione a blocchi fissi",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    add_arguments(_parser)
+    main(_parser.parse_args())
+
